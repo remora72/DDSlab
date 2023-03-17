@@ -1,0 +1,171 @@
+---
+title: "Analisis de Qualys KDB"
+author: "Juan José Vaquero García"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(kableExtra)
+
+raw.file = "../../data/qualys/latest.qkdb_out.xml"
+```
+
+# Qualys KDB
+
+Usaremos la base de datos de vulnerabilidades de Quadys para......
+
+## Requisitos previos
+Debido a mi imposibilidad de cargar los campos opcionales del xml en el data frame de manera correcta y para evitar perder más tiempo, con ayuda de ChatGPT, he decido crear un programa en python para añadir los campos <CVE_LIST> y <BUGTRAQ_LIST> para aquellas vulnerabilidades que no las llevaban.
+El programa utilizado se llama xml_mod.py (se ha añadido a github) y es el siguiente:
+
+```
+import xml.etree.ElementTree as ET
+
+# Archivo XML de entrada
+input_file = "/home/ubuntu/work/dds/repositories/DDSlab/data/qualys/latest.qkdb.xml"
+
+# Archivo XML de salida
+output_file = "/home/ubuntu/work/dds/repositories/DDSlab/data/qualys/latest.qkdb_out.xml"
+
+
+# Parsear el archivo de entrada como un árbol de elementos
+tree = ET.parse(input_file)
+root = tree.getroot()
+
+# Buscar todos los elementos VULN en el árbol
+vuln_elems = root.findall(".//VULN")
+
+# Iterar sobre cada elemento VULN y agregar el elemento CVE_LIST
+for vuln_elem in vuln_elems:
+
+    # Si el elemento CVE_LIST no existe, agregarlo
+    if vuln_elem.find("CVE_LIST") is None:
+        cve_list_elem = ET.SubElement(vuln_elem, "CVE_LIST")
+        cve_elem = ET.SubElement(cve_list_elem, "CVE")
+        id_elem = ET.SubElement(cve_elem, "ID")
+    else:
+        # Si el elemento CVE_LIST existe, buscar todos los elementos CVE
+        cve_elems = vuln_elem.findall(".//CVE")
+        # Iterar sobre cada elemento CVE y borrar el elemento URL si existe
+        for cve_elem in cve_elems:
+            url_elem = cve_elem.find("URL")
+            if url_elem is not None:
+                cve_elem.remove(url_elem)
+
+    # Si el elemento BUGTRAQ_LIST no existe, agregarlo
+    if vuln_elem.find("BUGTRAQ_LIST") is None:
+        bt_list_elem = ET.SubElement(vuln_elem, "BUGTRAQ_LIST")
+        bt_elem = ET.SubElement(bt_list_elem, "BUGTRAQ")
+        id_elem = ET.SubElement(bt_elem, "ID")
+    else:
+        # Si el elemento BUGTRAQ_LIST existe, buscar todos los elementos BUGTRAQ
+        bt_elems = vuln_elem.findall(".//BUGTRAQ")
+        # Iterar sobre cada elemento BUGTRAQ y borrar el elemento URL si existe
+        for bt_elem in bt_elems:
+            url_elem = bt_elem.find("URL")
+            if url_elem is not None:
+                bt_elem.remove(url_elem)
+
+            # Buscamos los ID y les poner el prefijo "BT-"
+            id_elem = bt_elem.find("ID")
+            if id_elem is not None:
+                id_value = id_elem.text
+            try:
+                id_value = int(id_value)
+                new_id_value = "BT-" + str(id_value)
+                id_elem.text = new_id_value
+            except ValueError:
+                pass
+
+
+# Escribir el árbol de elementos modificado en el archivo de salida
+tree.write(output_file)
+```
+
+```{r read_raw}
+doc <- xml2::read_xml(raw.file)
+
+kdb <- data.frame(qid = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/QID")),
+                  title = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/TITLE")),
+                  vuln_type = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/VULN_TYPE")),
+                  category = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/CATEGORY")),
+                  severity = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/SEVERITY_LEVEL")),
+                  patchable = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/PATCHABLE")),
+                  published = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/LAST_SERVICE_MODIFICATION_DATETIME")),
+                  stringsAsFactors = FALSE)
+kdb$published <- as.POSIXct.POSIXlt(strptime(x = kdb$published, format = "%Y-%m-%dT%TZ"))
+
+
+kable(head(kdb)) %>% kable_styling()
+```
+
+## Including Cybersecurity Standards
+
+Aliquam erat volutpat. Proin eget arcu et erat viverra eleifend. Quisque suscipit interdum blandit. Cras suscipit, nibh at mattis varius, purus massa pretium est, a malesuada felis velit sed leo. Nam quis malesuada orci. Aliquam consectetur molestie purus in rutrum. Curabitur purus libero, blandit vitae tempus quis, pharetra sit amet ex. Integer ligula lorem, gravida ac dui rutrum, sodales egestas augue. Etiam bibendum risus elit, quis dictum erat tristique id. Sed vulputate, turpis vel commodo molestie, lacus dui varius velit, vitae maximus tellus neque in urna. Donec non purus elementum, condimentum mi eu, semper dolor. Suspendisse malesuada turpis vel libero blandit varius. Cras rhoncus facilisis nunc sed efficitur. Suspendisse suscipit vel dui ut semper. Donec pellentesque tincidunt tincidunt.
+
+```{r add_cves, echo=FALSE}
+
+# Añadimos la lista de CVEs
+kdb$cve_list <- rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/CVE_LIST"))
+
+# Definir la función para separar la cadena de texto en una lista
+to_cve_list <- function(cve_list_str) {
+  if (nchar(cve_list_str) > 0) {
+    return(strsplit(cve_list_str, "CVE-")[[1]][-1])
+  } else {
+    return(NULL)
+  }
+}
+
+kdb$cve_list <- lapply(kdb$cve_list, to_cve_list)
+kdb$cve_list_num <- sapply(kdb$cve_list, length)
+
+```
+
+```{r add_bugtraqs, echo=FALSE}
+# Añadimos la lista de BUGTRAQSs
+kdb$bugtraq_list <- rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/BUGTRAQ_LIST"))
+
+# Definir la función para separar la cadena de texto en una lista
+to_bugtraq_list <- function(bugtraq_list_str) {
+  if (nchar(bugtraq_list_str) > 0) {
+    return(strsplit(bugtraq_list_str, "BT-")[[1]][-1])
+  } else {
+    return(NULL)
+  }
+}
+
+kdb$bugtraq_list <- lapply(kdb$bugtraq_list, to_bugtraq_list)
+kdb$bugtraq_list_num <- sapply(kdb$bugtraq_list, length)
+```
+
+
+```{r graph_patcheable}
+# Calcular la proporción de cada partición
+prop_particiones <- prop.table(table(kdb$patchable))
+
+lbl_tmp <- paste0(round(prop_particiones*100), "%")
+lbl_tmp1 <- paste0("No Patchable (", lbl_tmp[[1]],")")
+lbl_tmp2 <- paste0("Patchable (", lbl_tmp[[2]],")")
+lbl_t <- c(lbl_tmp1,lbl_tmp2)
+
+# Crear el gráfico de tipo "pie" con los porcentajes dentro del gráfico
+#pie(prop_particiones, labels = paste0(round(prop_particiones*100), "%"), 
+pie(prop_particiones, labels = lbl_t, 
+    main = "Particiones de patchable", col = c("skyblue", "lightgreen"))
+
+```
+
+
+```{r graph_2}
+
+```
+
+
+
+## Conclusion
+
+Ut finibus, metus in tristique blandit, purus quam vulputate sapien, vitae rhoncus nunc orci et leo. Duis id justo bibendum, molestie nulla eget, ullamcorper massa. Sed porttitor leo tellus, a tristique nisi tincidunt lobortis. Donec in orci imperdiet, lobortis lorem hendrerit, vestibulum dolor. Proin laoreet, orci at iaculis blandit, odio ligula commodo nunc, eu pulvinar justo tortor sed eros. Ut convallis condimentum purus, ac viverra neque maximus ac. Vestibulum consequat facilisis odio vel tempor.
