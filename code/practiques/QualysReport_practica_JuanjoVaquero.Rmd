@@ -9,16 +9,20 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE)
 
 library(kableExtra)
+library(ggplot2)
+library(dplyr)
+
 
 raw.file = "../../data/qualys/latest.qkdb_out.xml"
 ```
 
 # Qualys KDB
 
-Usaremos la base de datos de vulnerabilidades de Quadys para......
+Usaremos la base de datos de vulnerabilidades de Quadys para hacer un análisis de las vulnerabilidades teniendo en cuenta el número de CVEs y Bug Traqs definidos para cada una.
 
-## Requisitos previos
-Debido a mi imposibilidad de cargar los campos opcionales del xml en el data frame de manera correcta y para evitar perder más tiempo, con ayuda de ChatGPT, he decido crear un programa en python para añadir los campos <CVE_LIST> y <BUGTRAQ_LIST> para aquellas vulnerabilidades que no las llevaban.
+## Consideraciones previas
+Debido a mi imposibilidad de cargar los campos opcionales del xml (por ejemplo <CVE_LIST>, entre otras) en el data frame de manera correcta y para evitar perder más tiempo, con ayuda de ChatGPT, he decidido crear un programa en python para preprocesar el archivo de xml de entrada. Este preproceso ha sido básicamente añadir los campos <CVE_LIST> y <BUGTRAQ_LIST> para aquellas vulnerabilidades que no las llevaban.
+He intentado también añadir el campo <CORRELATION> y los subcampos "hijo" de este, pero por falta de tiempo lo he desestimado.
 El programa utilizado se llama xml_mod.py (se ha añadido a github) y es el siguiente:
 
 ```
@@ -86,6 +90,7 @@ tree.write(output_file)
 ```
 
 ```{r read_raw}
+# Cargamos el fichero de entrada
 doc <- xml2::read_xml(raw.file)
 
 kdb <- data.frame(qid = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/QID")),
@@ -97,14 +102,19 @@ kdb <- data.frame(qid = rvest::html_text(rvest::html_elements(doc, xpath = "//VU
                   published = rvest::html_text(rvest::html_elements(doc, xpath = "//VULN/LAST_SERVICE_MODIFICATION_DATETIME")),
                   stringsAsFactors = FALSE)
 kdb$published <- as.POSIXct.POSIXlt(strptime(x = kdb$published, format = "%Y-%m-%dT%TZ"))
+kdb$published_anno <- paste(substr(kdb$published, 1, 4), sep = "-")
 
-
-kable(head(kdb)) %>% kable_styling()
+#kable(head(kdb)) %>% kable_styling()
 ```
 
 ## Including Cybersecurity Standards
 
-Aliquam erat volutpat. Proin eget arcu et erat viverra eleifend. Quisque suscipit interdum blandit. Cras suscipit, nibh at mattis varius, purus massa pretium est, a malesuada felis velit sed leo. Nam quis malesuada orci. Aliquam consectetur molestie purus in rutrum. Curabitur purus libero, blandit vitae tempus quis, pharetra sit amet ex. Integer ligula lorem, gravida ac dui rutrum, sodales egestas augue. Etiam bibendum risus elit, quis dictum erat tristique id. Sed vulputate, turpis vel commodo molestie, lacus dui varius velit, vitae maximus tellus neque in urna. Donec non purus elementum, condimentum mi eu, semper dolor. Suspendisse malesuada turpis vel libero blandit varius. Cras rhoncus facilisis nunc sed efficitur. Suspendisse suscipit vel dui ut semper. Donec pellentesque tincidunt tincidunt.
+Lo primero que haremos será crear 2 nuevas columnas en nuestro data frame:
+
+- Número de CVEs definidos para cada vulnerabilidad
+- Número de Bugtraqs definidos para cada vulnerabilidad
+
+
 
 ```{r add_cves, echo=FALSE}
 
@@ -140,8 +150,12 @@ to_bugtraq_list <- function(bugtraq_list_str) {
 
 kdb$bugtraq_list <- lapply(kdb$bugtraq_list, to_bugtraq_list)
 kdb$bugtraq_list_num <- sapply(kdb$bugtraq_list, length)
+
+#kable(head(kdb)) %>% kable_styling()
 ```
 
+### Porcentages
+Lo primero que miraremos será el porcentage de vulnerabilidades que son parcheables y las que no lo son. Como vemos en el gráfico a continuación, vemos que la gran mayoría (89%) lo son.
 
 ```{r graph_patcheable}
 # Calcular la proporción de cada partición
@@ -154,13 +168,145 @@ lbl_t <- c(lbl_tmp1,lbl_tmp2)
 
 # Crear el gráfico de tipo "pie" con los porcentajes dentro del gráfico
 #pie(prop_particiones, labels = paste0(round(prop_particiones*100), "%"), 
+#pie(prop_particiones, labels = lbl_t, 
+#    main = "% vulnerabilidades parcheables", col = c("skyblue", "lightgreen"))
 pie(prop_particiones, labels = lbl_t, 
-    main = "Particiones de patchable", col = c("skyblue", "lightgreen"))
+    col = c("skyblue", "lightgreen"))
+
+```
+
+### Histograma
+A continuación miraremos la distribución del número de CVEs y bug tracks. 
+La primera gráfica que mostramos es el histograma del número de CVEs y Bugtraqs. Como vemos en la gráfica a continuación, la mayoría de vulnerabilidades tienen entre 0 y 20 CVEs/Bugtraqs:
+
+
+
+```{r graph_2}
+# Crear un vector de conteos de particiones
+#cve_part <- table(kdb$cve_list_num)
+#
+# Crear un gráfico de barras para visualizar las particiones
+#barplot(cve_part, main = "CVE num", 
+#        xlab = "CVE num", ylab = "Frecuencia")
+#
+#ggplot(kdb, aes(x=cve_list_num)) + geom_density()
+#
+```
+
+
+```{r graph_21}
+# Crear un vector de cortes de 10 en 10 desde el mínimo al máximo valor de cve_num_list
+#cuts <- seq(min(kdb$cve_list_num), max(kdb$cve_list_num), by = 50)
+# Crear una tabla de frecuencias con los cortes y contar los valores que caen en cada rango
+#freq_table <- table(cut(kdb$cve_list_num, breaks = cuts, include.lowest = TRUE))
+# Hacer el gráfico de barras de las frecuencias
+#barplot(freq_table, main = "Gráfico de Barras de Rangos de Valores de cve_num_list",
+#        xlab = "Rangos de valores", ylab = "Frecuencia")
+
+# Hacer el histograma de los valores de cve_num_list
+#hist(kdb$cve_list_num, main = "Histograma de cve_list_num",
+#     xlab = "Valores de cve_num_list", ylab = "Frecuencia", col = "lightblue")
+```
+
+```{r graph_distr_cve}
+# Hacer el histograma de los valores de cve_num_list con 20 intervalos
+#hist(kdb$cve_list_num, main = "Histograma de cve_list_num (20 intervalos)",
+#     xlab = "Valores de cve_num_list", ylab = "Frecuencia", col = "lightblue", breaks = 20)
+# Hacer el histograma de los valores de cve_num_list con 20 intervalos
+#hist(kdb$bugtraq_list_num, main = "Histograma de bugtraq_list_num (20 intervalos)",
+#     xlab = "Valores de bugtraq_num_list", ylab = "Frecuencia", col = "lightblue", breaks = 20)
+
+# Hacer el histograma de los valores de cve_num_list con ggplot2
+gg1 <- ggplot(kdb, aes(x = cve_list_num)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Histograma de cve_list_num", x = "Valores de cve_num_list", y = "Frecuencia")
+
+gg2 <- ggplot(kdb, aes(x = bugtraq_list_num)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Histograma de bugtraq_list_num", x = "Valores de bugtraq_num_list", y = "Frecuencia")
+
+gridExtra::grid.arrange(gg1, gg2, ncol=2)
 
 ```
 
 
-```{r graph_2}
+### Por categorias
+La siguiente gráfica que mostraremos será en número de CVEs y Bugtraqs por categoría. Como muestran las gráficas siguientes, las 2 categorías donde existen más CVEs y Bugtraqs son:
+
+- Local: Según Qualis, esta categoría está definida como: "This category consists of QIDs that detect vulnerabilities or gather information about vulnerabilities that can be exploited after getting local access to a box or vulnerabilities that need authenticated credentials to be detected."
+- SUSE: Según Qualis, esta categoría está definida como: "This is a platform-specific category for all vulnerabilities and informational checks that belong to SUSE Linux."
+
+Después de estas 2, las 2 siguientes son "OEL" (Oracle Enterprise Linux)y Ubuntu.
+
+Por lo que se puede ver, 3 de las 4 vulnerabilidades con más CVEs y Bugtraqs corresponden a Sistemas Operativos Linux.
+
+```{r graph_cat1}
+sum_cve_by_cat <- aggregate(cve_list_num ~ category, data=kdb, FUN=sum)
+
+options(repr.plot.width = 100)
+
+ggplot(sum_cve_by_cat, aes(x=category, y=cve_list_num)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+sum_bt_by_cat <- aggregate(bugtraq_list_num ~ category, data=kdb, FUN=sum)
+ggplot(sum_bt_by_cat, aes(x=category, y=bugtraq_list_num)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+```{r graph_cat2}
+#sum_by_cat <- aggregate(cbind(cve_list_num, bugtraq_list_num) ~ category, data=kdb, FUN=sum)
+#
+#ggplot(sum_by_cat, aes(x=category)) + 
+#  geom_bar(aes(y=cve_list_num), fill="blue", stat="identity", position="dodge") +
+#  geom_bar(aes(y=bugtraq_list_num), fill="red", stat="identity", position="dodge") +
+#  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+### Por severity
+
+Si miramos el número de CVEs y Bugtraqs por severity, vemos que la mayoría son para severities 3 (Serious) y 4 (Critical):
+
+
+```{r graph_sev}
+sum_cve_by_sev <- aggregate(cve_list_num ~ severity, data=kdb, FUN=sum)
+
+gg1<- ggplot(sum_cve_by_sev, aes(x=severity, y=cve_list_num)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+sum_bt_by_sev <- aggregate(bugtraq_list_num ~ severity, data=kdb, FUN=sum)
+
+gg2 <- ggplot(sum_bt_by_sev, aes(x=severity, y=bugtraq_list_num)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+gridExtra::grid.arrange(gg1, gg2, ncol=2)
+
+```
+
+### Por published
+
+En función del año de publicación de la vulnerabilidad, vemos que entre los años 2015 y 2019 son los años cuando más vulnerabilidades aparecieron:
+
+```{r graph_pub}
+sum_cve_by_pub <- aggregate(cve_list_num ~ published_anno, data=kdb, FUN=sum)
+
+gg1 <- ggplot(sum_cve_by_pub, aes(x=published_anno, y=cve_list_num)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+sum_bt_by_pub <- aggregate(bugtraq_list_num ~ published_anno, data=kdb, FUN=sum)
+
+gg2 <- ggplot(sum_bt_by_pub, aes(x=published_anno, y=bugtraq_list_num)) + 
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+gridExtra::grid.arrange(gg1, gg2, ncol=2)
 
 ```
 
@@ -168,4 +314,10 @@ pie(prop_particiones, labels = lbl_t,
 
 ## Conclusion
 
-Ut finibus, metus in tristique blandit, purus quam vulputate sapien, vitae rhoncus nunc orci et leo. Duis id justo bibendum, molestie nulla eget, ullamcorper massa. Sed porttitor leo tellus, a tristique nisi tincidunt lobortis. Donec in orci imperdiet, lobortis lorem hendrerit, vestibulum dolor. Proin laoreet, orci at iaculis blandit, odio ligula commodo nunc, eu pulvinar justo tortor sed eros. Ut convallis condimentum purus, ac viverra neque maximus ac. Vestibulum consequat facilisis odio vel tempor.
+Conclusiones:
+
+- CVEs y Bustraqs van de la mano. Se ve que las CVEs definidas tienen casi el mismo número de bustraqs definidos. 
+- Como el análisis lo hemos hecho en función de los CVEs y Bustraqs definidos, vemos que se los que están identificados mayoritariamente son los de tienen una severidad mayor.
+- Vulnerabilidades definidas con CVE/Bugtraq son sobre todo para para sistemas operativos Linux.
+
+
