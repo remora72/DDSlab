@@ -1,0 +1,145 @@
+---
+title: "Supervised Learning"
+author: "Humbert Costas"
+date: "6/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("jsonlite", warn.conflicts = FALSE)
+library("ggplot2", warn.conflicts = FALSE)
+library("lattice", warn.conflicts = FALSE)
+library("caret", warn.conflicts = FALSE)
+library("gbm", warn.conflicts = FALSE)
+library("pROC", warn.conflicts = FALSE)
+
+set.seed(42)
+```
+
+# Detección de ataques con aprendizaje supervisado
+
+El siguiente ejercicio consiste en crear un modelo entrenado capaz de detectar ataques a partir de logs de un firewall.
+Para este propósito, se realizará una prueba de concepto con una pequeña muestra de logs previamente etiquetados como tráfico normal o ataque.
+
+## Data sets
+
+Se proporcionan los siguentes archivos:
+
+ - features.csv
+ - events.csv
+
+```{r tidy_data, echo=FALSE}
+events <- read.csv("../../../data/DDSml/raw/events_sample.csv")
+features <- read.csv("../../../data/DDSml/raw/features.csv")
+```
+
+### Events analysis
+
+```{r events_stats, echo=FALSE}
+events$srcip <- NULL
+events$attack_cat <- NULL
+events$dstip <- NULL
+events$ct_state_ttl <- NULL
+events$sttl <- NULL
+events$dttl <- NULL
+events$sbytes <-NULL
+events$smeansz <- NULL
+
+```
+
+### Data enrichment
+
+```{r data_enrich, echo=FALSE}
+
+
+```
+
+## Feature engineering
+
+```{r feat_eng, echo=FALSE}
+# El modelo requiere nombres de columna simples y features numericas o factor
+names(events) <- stringr::str_replace_all(names(events), "_", "")
+events <- as.data.frame(unclass(events), stringsAsFactors = TRUE)
+
+# Etiquetamos la columna Label con valores categoricos
+events$Label <- ifelse(events$Label == 1, "ATTACK", "NORMAL")
+events$Label <- as.factor(events$Label)
+
+outcomeName <- 'Label'
+predictorsNames <- names(events)[names(events) != outcomeName]
+
+prop.table(table(events$Label))
+```
+
+## Build model
+
+### Create train and test data sets
+
+```{r train_test, echo=FALSE}
+splitIndex <- createDataPartition(events[,outcomeName], p = .75, list = FALSE, times = 1)
+trainDF <- events[ splitIndex,]
+testDF  <- events[-splitIndex,]
+
+```
+
+### Model definition
+
+```{r model_config, echo=FALSE}
+objControl <- trainControl(method = 'cv', 
+                           number = 3, 
+                           returnResamp = 'none', 
+                           summaryFunction = twoClassSummary, 
+                           classProbs = TRUE)
+```
+
+### Train model
+
+```{r model_train, echo=FALSE}
+objModel <- train(trainDF[,predictorsNames], trainDF[,outcomeName], 
+                  method='gbm', 
+                  trControl=objControl,  
+                  metric = "ROC",
+                  preProc = c("center", "scale"))
+summary(objModel)
+```
+
+### Test model
+
+```{r model_test, echo=FALSE}
+predictions <- predict(object = objModel, testDF[, predictorsNames], type = 'raw')
+head(predictions)
+
+```
+
+## Evaluate model
+
+```{r model_eval, echo=FALSE}
+print(postResample(pred=predictions, obs=as.factor(testDF[,outcomeName])))
+
+```
+
+
+```{r predic_prob}
+# probabilites 
+predictions <- predict(object=objModel, testDF[,predictorsNames], type='prob')
+auc <- roc(ifelse(testDF[,outcomeName]=="ATTACK",1,0), predictions[[2]])
+print(auc$auc)
+```
+
+
+
+```{r var_importance}
+plot(varImp(objModel,scale=F))
+```
+
+
+## Conclusion
+
+```{r conclusion, echo=FALSE}
+
+
+```
+
+
