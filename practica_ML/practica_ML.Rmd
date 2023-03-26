@@ -1,0 +1,464 @@
+---
+title: "Practica final Machine Learning"
+author: "Juan José Vaquero"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 4
+    number_sections: true
+    theme: cosmo
+---
+
+```{r report, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+library(dplyr)
+library(kableExtra)
+library(knitr)
+
+resultados_orig <- matrix(c(0.615,  0.6956, 0.754, 
+                            0.6011, 0.6208, 0.6872, 
+                            0.696,  0.6217, 0.6262,
+                            0.8096, 0.7133, 0.64,
+                            0.8524, 0.7138, 0.6312,
+                            0.9375, 0.8515, 0.7168), nrow = 3)
+rownames(resultados_orig) <- c("1000", "2000", "4000")
+colnames(resultados_orig) <- c("1000", "2000", "4000", "8000", "10000", "20000")
+
+resultados_mod1 <- matrix(c(0.6033, 0.6922, 0.7553, 
+                            0.6211, 0.6292, 0.6839, 
+                            0.7033, 0.6083, 0.6267,
+                            0.8159, 0.7053, 0.6344,
+                            0.8409, 0.7214, 0.6307,
+                            0.9203, 0.8541, 0.7299), nrow = 3)
+rownames(resultados_mod1) <- c("1000", "2000", "4000")
+colnames(resultados_mod1) <- c("1000", "2000", "4000", "8000", "10000", "20000")
+
+resultados_mod2 <- matrix(c(0.6017, 0.6756, 0.6405, 
+                            0.6389, 0.5892, 0.6567, 
+                            0.6867, 0.6311, 0.5988,
+                            0.763,  0.6887, 0.6167,
+                            0.8285, 0.7192, 0.629,
+                            0.8937, 0.8002, 0.7231), nrow = 3)
+rownames(resultados_mod2) <- c("1000", "2000", "4000")
+colnames(resultados_mod2) <- c("1000", "2000", "4000", "8000", "10000", "20000")
+
+
+ratio_matriz <- matrix(c(1, 0.5, 0.25, 2, 1, 0.5, 4, 2, 1, 8, 4, 2, 10, 5, 2.5, 20, 10, 5), nrow = 3)
+rownames(ratio_matriz) <- c("1000", "2000", "4000")
+colnames(ratio_matriz) <- c("1000", "2000", "4000", "8000", "10000", "20000")
+
+sparse_val2 <- matrix(c(0.7089, 0.7192, 0.8006, 0.8333, 0.8333), nrow = 1)
+rownames(sparse_val2) <- c("precisión")
+colnames(sparse_val2) <- c("90%", "85%", "75%", "65%", "55%")
+
+sparse_val1 <- matrix(c(0.6961, 0.7214, 0.725, 0.8333, 0.8333), nrow = 1)
+rownames(sparse_val1) <- c("precisión")
+colnames(sparse_val1) <- c("90%", "85%", "75%", "65%", "55%")
+ 
+sparse_orig <- matrix(c(0.7119, 0.7138, 0.7311, 0.8333, 0.8333), nrow = 1)
+rownames(sparse_orig) <- c("precisión")
+colnames(sparse_orig) <- c("90%", "85%", "75%", "65%", "55%")
+
+```
+
+
+
+# Objetivo
+
+El objetivo de la siguiente práctica es la de mejorar un modelo dado para la clasificación de texto basado en el modelo '*Naive Bayes*'.
+
+Este modelo consiste en ver si usando el campo de texto "diagnosis" de la base de datos de vulnerabilidades de Qualys, el modelo es capaz de identificar si una vulnerabilidad es crítica o no.
+
+# Obtención de datos
+
+Debido a la gran cantidad de procesamiento necesario para realizar todos los cambios en el modelo original, el tiempo necesario para la finalización del modelo es muy elevado (unas 2 horas). Por esa razón, esta práctica se ha realizado en 2 partes:
+
+1. Construcción del modelo y ejecución de todas las pruebas necesarias del modelo con diferentes parámetros y diferentes tratamientos del texto a analizar. Durante estas pruebas se han recolectado todos los resultados que luego se han utilizado para la siguiente parte. El código utilizado para estas pruebas y recolección de resultados es el que está al final del programa Rmarkdown. Lo único que se ha hecho es modificar los parámetros especificados y/o eliminar partes del código.
+
+2. Se han añadido todos los resultados en diferentes matrices de R para poder realizar el report en HTML posterior. 
+
+En este documento Rmarkdown se encuentran 2 secciones de código:
+
+- **_programa_**: Esta sección de código es la que se ha utilizado para realizar todas las pruebas del modelo con las modificaciones y parámetros descritos en la sección "Mejora del modelo inicial". Está al final del fichero.
+
+- **_report_**: Esta sección contiene los datos para la realización de las tablas y gráficos para la creación del report en HTML. 
+
+Los procesos y decisiones tomadas para la obtención de los datos se detallan en la sección "Mejora del modelo inicial".
+
+Para reproducir el caso de la mejora del modelo final se puede hacer ejecutando la sección de código **programa** que se encuentra al final del fichero. Actualmente se encuentra deshabilitado (**eval=FALSE**) por lo que para habilitarlo se puede hacer de 2 maneras:
+
+1. Ejecuarlo manualmente, o
+
+2. Eliminar la opcion **eval=FALSE** y ejecutar "**Kinit to HTML**" en RStudio. Los datos se mostrarán al final del HTML Generado.
+
+## Análisis del texto
+
+# El modelo
+
+A continuación se procede a explicar el modelo inicial y la mejora obtenida.
+
+## Modelo inicial
+
+El modelo inicial que se intenta mejorar realiza los siguientes pasos:
+
+1. Obtención de los datos cargando el fichero XML de Qualys y cargando el mismo en un dataframe y seleccionando sólo los campos *"qid"*, *"severity"* y *"diagnosis"*.
+
+2.  Limpieza básica de las palabras: 
+  - Paso a minúsculas
+  - Eliminar signos de puntuación 
+  - Eliminar las "stop words"
+
+3. Elección de 4000 muestras: 2000 críticas y 2000 no críticas.
+
+4. Eliminación de aquellas palabras que no estén en el 85% de los documentos.
+
+5. Ejecución del modelo con un 70% de las muestras para entrenar el modelo y 30% para hacer las pruebas.
+
+Este modelo da una precisión del **62%**.
+
+## Mejora del modelo
+
+### Número de muestras
+
+Para empezar a mejorar el modelo, empezaremos por modificar el número de muestras que se cogen de las tablas de vulnerabilidades críticas y no críticas. En la siguiente tabla se ven los valores de la precisión que obtenemos del modelo cuando cambiamos el número de muestras de vulnerabilidades críticas (y) y el número de muestras de las no críticas:
+
+```{r, echo=FALSE} 
+resultados_orig %>%
+kbl(caption = "(x=other, y=critical)") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+Como se puede ver, cuando el ratio de numero de muestras no críticas por cada muestra crítica (ver tabla debajo) es mayor que 5, la precisión se dispara hasta valores de más del 90%. Esto es debido a que el modelo está detectando la "normalidad" de la muestra, por lo que podemos descartar esa distribución de muestras. El mismo caso (pero al revés) sucede para muestras menores de 1.
+
+```{r, echo=FALSE} 
+ratio_matriz %>%
+kbl(caption = "Tabla de ratios de las muestras escogidas") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+Por lo tanto, para seguir con nuestras mejoras, la decisión ha sido la de coger la siguientes muestras:
+
+- 2000 muestras críticas
+
+- 10000 muestras no críticas
+
+Esto nos da una precisión del **71%**, con lo que por el momento hemos conseguido una mejora del **14.9%**.
+
+### Normalizar texto
+
+Una vez se ha decidido el número de muestras a usar (2000 muestras críticas, 10000 muestras no críticas), procedemos a ver si podemos conseguir alguna mejora tratando de limpiar los datos y tratar de normalizarlos de alguna manera. Para ello, procedemos a realizar los siguiente cambios adicionales (aparte de los ya realizados en el modelo original) en el texto del campo "diagnosis":
+
+- Las palabras que sean CVEs (por ejemplo *CVE-2009-1234*), los convertimos al string "*cven*"
+- Eliminamos los caracteres especiales "*\n*" y "*\t*"
+- Eliminamos los números (durante las pruebas hemos visto que hay strings que son sólo números y que creemos que no aportan nada)
+
+Una vez hecho estos cambios, se ejecuta el modelo para varias muestras y el resultado obtenido es el siguiente:
+
+```{r, echo=FALSE} 
+resultados_mod1 %>%
+kbl(caption = "(x=other, y=critical)") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+Como vemos, la mejora no es mucha, sólo una mejora del 1.2% con respecto al punto anterior (una mejora del 16.3% con respecto al modelo original).
+
+Seguiremos con las misma distribución de muestras (2000 muestras críticas, 10000 muestras no críticas) para la siguiente mejora.
+
+### Sustitución por lexemas
+
+La siguiente mejora que introduciremos será la de sustituir las palabras por sus lexemas. Para ello se usa la libreria '**udpipe**'. La ejecución de esta parte tarda unas 2 horas ya que depsués de descargar el modelo, se han recorrer todas las palabras que hay en el campo "diagnosis" y sustituir cada palabra por su lexema. 
+
+Una vez hecho esto, se procede a ejecutar el modelo para varias muestras (tal y como hemos hecho anteriormente) y el resultado es el siguiente:
+
+```{r, echo=FALSE} 
+resultados_mod2 %>%
+kbl(caption = "(x=other, y=critical)") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+Como se ve, apenas ha habido ningún cambio en el resultado. De hecho ha sido algo peor que el anterior ya que hemos tenido una pérdida del *0.3%* (del 72,14% al 71,92%) con respecto al anterior caso. Aún así seguimos teniendo una mejora del *13.6%*.
+
+Aún así, se continúa con las mejoras en este punto y con las misma distribución de muestras.
+
+### Eliminación de palabras escasas "sparse"
+
+La siguiente mejora que se prueba ahora será la de modificar el procentaje de palabras "escasas" de los documentos. Hasta ahora, se han realizado las pruebas con el porcentaje del 85% que era el valor del modelo inicial.
+
+Al ejecutar el modelo que se tiene hasta ahora (con todas las mejoras mencionadas hasta el momento) con diferentes valores del porcentaje de palabras "escasas", se obtienen los siguientes datos:
+
+```{r, echo=FALSE} 
+sparse_val2 %>%
+kbl(caption = "sparse %") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+Tal y como se puede ver, cuando se define un "sparse" del 75%, la precisión sube hasta el *80%* (una mejora del *28.9%*)
+
+A partir del 65% siempre se da una mejora del 0.8333% y es porque se han borrado tantas palabras que no queda ninguna palabra para las líneas correspondientes a vulnerabilidades críticas. Como se puede ver en la salida del modelo:
+
+```
+                  test_classes
+course_predictions   NO  YES
+               NO  5000 1000
+               YES    0    0
+```
+
+Para ver si esta mejora sucede sólo para este caso o no, se procede a realizar la misma prueba para el modelo original y para el modelo donde sólo se normalizado el texto (sin modificación por lexemas). Los resultados obtenidos son los siguientes:
+
+```{r, echo=FALSE} 
+sparse_orig %>%
+kbl(caption = "sparse % modelo original") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+<br>
+    
+```{r, echo=FALSE}
+sparse_val1 %>%
+kbl(caption = "sparse % modelo después de sólo normalizar palabras") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+Como se puede apreciar, la mejora que se produce al cambiar el porcentaje de palabras "sparse" es mínimo, comparado con la mejora obtenida para el modelo después de cambiar las palabras por sus lexemas.
+
+# Conclusiones
+
+Después de aplicar los cambios ya mencionados, hemos podido obtener una precisión del **80%**, un **28.9%** de mejora con respecto al modelo inicial. 
+
+Podemos concluir lo siguiente:
+
+1. Tal y como se ha visto, el mayor incremento en la precisión se da sobre todo al elegir una distribución idónea de muestras, es decir, una distrubión de muestras críticas y no críticas. 
+
+2. Todo y que reemplazar las palabras por sus lexemas no da una mejora sustancial al principio, si este proceso se hace junto con la eliminación de palabras "sparse" adecuadamente, se puede ver que este paso es importante a la hora de incrementar la precisión.
+
+
+```{r programa, include=TRUE, echo=FALSE, eval=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+###############################################################################
+##### INICIAMOS ###############################################################
+###############################################################################
+
+# Cargamos librerias
+library(dplyr)
+library(tm)
+library(caret)
+library(kableExtra)
+library(stringr)
+library(udpipe)
+library(stringr)
+library(tidytext)
+library(tidyr)
+
+# Leemos documento XML
+raw.file = "data/latest.qkdb.xml.zip"
+doc <- xml2::read_xml(raw.file)
+
+# Extract QID, SEVERITY_LEVEL and DIAGNOSIS
+kdb <- rvest::html_text(rvest::html_elements(doc, xpath="//VULN[DIAGNOSIS]/*[self::QID or self::SEVERITY_LEVEL or self::DIAGNOSIS]"))
+kdb <- matrix(kdb, nrow = length(kdb)/3, ncol = 3, byrow = TRUE)
+kdb <- as.data.frame.matrix(kdb)
+names(kdb) <- c("qid", "severity", "diagnosis")
+
+# Tidy data frame
+kdb$qid <- as.integer(kdb$qid)
+kdb$severity <- as.integer(kdb$severity)
+kdb$diagnosis <- textclean::replace_html(kdb$diagnosis)
+kdb$critical <- ifelse(test = kdb$severity < 5, yes = "NO", no = "YES")
+kdb$criticalb <- kdb$severity == 5
+
+
+###############################################################################
+##### PRIMERA LIMPIEZA DE DATOS ###############################################
+###############################################################################
+
+# limpiar datos
+kdb$descr <- textclean::replace_symbol(kdb$diagnosis)
+
+# pasamos a minúsculas
+kdb$descr <- tolower(kdb$descr)
+
+# convertimos los CVEs (CVE-1234-12345) al string cven
+pattern <- "cve-\\d+-\\d+"
+kdb$descr <- gsub(pattern, "cven", kdb$descr)
+
+# Eliminamos caracteres especiales
+pattern <- "\n"
+kdb$descr <- gsub(pattern, "", kdb$descr)
+pattern <- "\t"
+kdb$descr <- gsub(pattern, "", kdb$descr)
+
+# Eliminamos signos de puntuacion
+kdb$descr <- removePunctuation(kdb$descr)
+
+# Eliminamos los números 
+pattern <- "\\d+"
+kdb$descr <- gsub(pattern, "", kdb$descr)
+
+# mostrar datos
+#kdbw_freq <- sort(table(unlist(strsplit(kdb$descr, " "))), decreasing = TRUE)
+#kdbw_clean <- names(kdbw_freq)[(which(!(names(kdbw_freq) %in% stopwords::stopwords())))]
+#kdbw_clean
+#kbl(head(kdb)) %>% kable_styling(font_size = 10)
+
+
+###############################################################################
+##### CONVERTIMOS LAS PALABRAS POR SUS LEXEMAS ################################
+###############################################################################
+
+# Descargar y cargar el modelo de idioma en UDPIPE
+model <- udpipe_download_model(language = "english")
+model <- udpipe_load_model(model$file_model)
+
+# Separa las palabras en filas individuales
+kdb_tokenized <- data.frame(word = unlist(str_split(kdb$descr, "\\s+")))
+# borramos los repetidos. PAsamos de 3.555.454 a 49765 (!)
+kdb_tokenized <- kdb_tokenized %>%
+  distinct(kdb_tokenized$word, .keep_all = TRUE)
+# ordenamos el dataframe
+kdb_tokenized <- arrange(kdb_tokenized, word)
+# borramos las líneas que sean un string vacio
+kdb_tokenized <- kdb_tokenized[kdb_tokenized$word != "", ]
+
+
+# Anota las palabras con udpipe
+annotated <- udpipe_annotate(model, x = kdb_tokenized$word)
+
+# Obtiene los lemas de cada palabra
+pos_lemmas <- as.data.frame(annotated)
+#quotamos los repetidos
+pos_lemmas <- pos_lemmas %>%
+  distinct(pos_lemmas$sentence, .keep_all = TRUE)
+# ordenamos el data frame
+pos_lemmas <- arrange(pos_lemmas, sentence)
+
+
+# Une los lemas con las palabras originales
+kdb_lemmas <- cbind(kdb_tokenized, pos_lemmas)
+
+kdb_lemmas <- kdb_lemmas %>%
+  distinct(kdb_lemmas$word, .keep_all = TRUE)
+
+# Agrupa por la palabra original y resume con el lema
+kdb_summary <- aggregate(kdb_lemmas$lemma, list(kdb_lemmas$word), paste, collapse = " ")
+
+names(kdb_summary) <- c("word", "lemma")
+ 
+
+replace_words <- function(words_list) {
+  lemmas_list <- vector("list", length(words_list))
+  for (i in seq_along(words_list)) {
+    if (words_list[i] %in% kdb_summary$word) {
+      lemmas_list[[i]] <- kdb_summary$lemma[kdb_summary$word == words_list[i]]
+    } else {
+      lemmas_list[[i]] <- words_list[i]
+    }
+  }
+  return(lemmas_list)
+}
+
+
+# Sustituye las palabras por sus lemas en la columna descr
+kdb$descr <- sapply(str_split(kdb$descr, "\\s+"), function(x) {
+  paste0(replace_words(x), collapse = " ")
+})
+
+
+###############################################################################
+##### ELEGIMOS LAS MUESTRAS ###################################################
+###############################################################################
+
+# Prepare data for training
+kdb_critical <- kdb %>% filter(critical == "YES")
+kdb_other <- kdb %>% filter(critical == "NO")
+
+kdb_ml <- bind_rows(kdb_critical %>% sample_n(2000), 
+                    kdb_other %>% sample_n(10000)) %>%
+                    sample_n(12000) %>%
+                    select(descr, critical)
+
+#table(kdb_ml$critical)
+
+###############################################################################
+##### PROBAMOS EL MODELO
+###############################################################################
+
+#*******************************************************************
+#                         Classification
+#*******************************************************************
+#-------------------------------------------------------------------
+#                  4.2.: Preparing data for Classification
+#-------------------------------------------------------------------
+#Load up the corpus
+course_raw <- kdb_ml$descr
+course_corpus <- VCorpus(VectorSource(course_raw))
+course_corpus <- tm_map(course_corpus, content_transformer(tolower))
+course_corpus <- tm_map(course_corpus, removePunctuation)
+course_corpus <- tm_map(course_corpus, removeWords, stopwords())
+course_dtm <- DocumentTermMatrix(course_corpus)
+#course_dtm
+#findFreqTerms(course_dtm,5)
+
+#Remove terms not in 90% of the documents. Only have those that are there
+#in atleast 2 documents
+#dense_course_dtm <- removeSparseTerms(course_dtm, .85)
+dense_course_dtm <- removeSparseTerms(course_dtm, .75)
+
+#Inspect to TF-IDF
+#inspect(dense_course_dtm)
+
+#C onvert continuous values to classes = { Yes, No }
+conv_counts <- function(x) {
+  x <- ifelse(x > 0, 1, 0)
+  x <- factor(x, levels = c(0, 1), labels = c("No", "Yes"))
+}
+class_dtm <- apply(dense_course_dtm, MARGIN = 2, conv_counts)
+#class_dtm
+
+
+#-------------------------------------------------------------------
+#                  4.3.: Building the model
+#-------------------------------------------------------------------
+#Load the classifications for the descriptions
+# course_classes = scan("data/Course-Classification.txt", what="", sep="\n")
+course_classes <- kdb_ml$critical
+
+#install.packages("caret")
+#Random split of training and testing sets
+#train_set <- createDataPartition(y=course_classes, p=.7,list=FALSE)
+train_set <- createDataPartition(y=course_classes, p=.7,list=FALSE)
+
+
+#spliting the dtm
+train_dtm <- class_dtm[train_set,]
+test_dtm <-class_dtm[-train_set,]
+
+#split the course_classes
+train_classes <- course_classes[train_set]
+test_classes <- course_classes[-train_set]
+
+#train the model using naive bayes
+course_model <- train( data.frame(train_dtm), train_classes, method="nb")
+#course_model <- train( data.frame(train_dtm), train_classes, method="rf")
+#course_model
+
+
+
+#-------------------------------------------------------------------
+#                  4.3.: Predictions for Text
+#-------------------------------------------------------------------
+#Predict for the test data
+course_predictions <- predict(course_model,test_dtm)
+
+#Analyze prediction accuracy
+confusionMatrix(table(course_predictions , test_classes))
+#-------------------------------------------------------------------
+```
+
+
+
+
+
+
